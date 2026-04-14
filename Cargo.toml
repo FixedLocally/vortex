@@ -1,0 +1,17 @@
+[package]
+name = "vortex"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dashmap = "6.1.0"
+dotenv = "0.15.0"
+futures = "0.3.32"
+mysql = "28.0.0"
+solana-address-lookup-table-interface = "3.1.0"
+solana-program = "4.0.0"
+solana-rpc-client = "3.1.12"
+solana-sdk = "4.0.1"
+tokio = { version = "1.51.1", features = ["full"] }
+yellowstone-grpc-client = "13.0.0"
+yellowstone-grpc-proto = "12.2.0"
