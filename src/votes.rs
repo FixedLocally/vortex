@@ -1,5 +1,4 @@
 use crate::utils::pubkey_from_slice;
-use solana_sdk::pubkey::Pubkey;
 use yellowstone_grpc_proto::geyser::SubscribeUpdateTransactionInfo;
 
 // (vote account, slot, latency)

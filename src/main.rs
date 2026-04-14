@@ -11,14 +11,6 @@ mod non_votes;
 mod utils;
 mod votes;
 
-fn create_latency_sql(rows: usize) -> String {
-    let mut sql = "insert ignore into vote_latencies (vote_account, slot, latency) values (?, ?, ?)".to_string();
-    for _ in 1..rows {
-        sql += ", (?, ?, ?)";
-    }
-    sql
-}
-
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
@@ -32,7 +24,7 @@ async fn main() {
         let non_votes = non_votes::NonVotes::new(&lut);
         let pool = Pool::new(mysql_url.as_str()).unwrap();
         let mut conn = pool.get_conn().unwrap();
-        let latency_stmt = conn.prep(create_latency_sql(1)).unwrap();
+        let latency_stmt = conn.prep("insert ignore into vote_latencies (vote_account, slot, latency) values (?, ?, ?)").unwrap();
         let revenue_stmt = conn.prep("insert into block_revenue (slot, fee, tips) values (?, ?, ?)").unwrap();
 
         println!("connecting to grpc server: {}", grpc_url);
