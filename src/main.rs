@@ -1,22 +1,23 @@
-use dashmap::DashMap;
-use futures::{FutureExt, SinkExt as _, StreamExt as _};
-use solana_sdk::pubkey::Pubkey;
+use futures::{FutureExt, StreamExt as _};
+use mysql::{Pool, prelude::Queryable};
 use std::{collections::HashMap, sync::atomic::{AtomicU64, Ordering}};
 use yellowstone_grpc_client::GeyserGrpcBuilder;
 use yellowstone_grpc_proto::{geyser::{subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeRequestFilterAccounts, SubscribeRequestFilterBlocks}, tonic::transport::Endpoint};
 
+use crate::votes::process_vote;
+
 mod lut;
 mod non_votes;
+mod utils;
+mod votes;
 
-const JITOTIP_1: Pubkey = Pubkey::from_str_const("96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5");
-const JITOTIP_2: Pubkey = Pubkey::from_str_const("HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe");
-const JITOTIP_3: Pubkey = Pubkey::from_str_const("Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY");
-const JITOTIP_4: Pubkey = Pubkey::from_str_const("ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49");
-const JITOTIP_5: Pubkey = Pubkey::from_str_const("DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh");
-const JITOTIP_6: Pubkey = Pubkey::from_str_const("ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt");
-const JITOTIP_7: Pubkey = Pubkey::from_str_const("DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL");
-const JITOTIP_8: Pubkey = Pubkey::from_str_const("3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT");
-const JITOTIPS: [Pubkey; 8] = [JITOTIP_1, JITOTIP_2, JITOTIP_3, JITOTIP_4, JITOTIP_5, JITOTIP_6, JITOTIP_7, JITOTIP_8];
+fn create_latency_sql(rows: usize) -> String {
+    let mut sql = "insert ignore into vote_latencies (vote_account, slot, latency) values (?, ?, ?)".to_string();
+    for _ in 1..rows {
+        sql += ", (?, ?, ?)";
+    }
+    sql
+}
 
 #[tokio::main]
 async fn main() {
@@ -29,6 +30,10 @@ async fn main() {
     let handle = tokio::spawn(async move {
         let lut = lut::Lut::new(rpc_url);
         let non_votes = non_votes::NonVotes::new(&lut);
+        let pool = Pool::new(mysql_url.as_str()).unwrap();
+        let mut conn = pool.get_conn().unwrap();
+        let latency_stmt = conn.prep(create_latency_sql(1)).unwrap();
+        let revenue_stmt = conn.prep("insert into block_revenue (slot, fee, tips) values (?, ?, ?)").unwrap();
 
         println!("connecting to grpc server: {}", grpc_url);
         let mut grpc_client = GeyserGrpcBuilder{
@@ -75,22 +80,15 @@ async fn main() {
                 },
                 Some(UpdateOneof::Block(block)) => {
                     println!("got block: {}", block.slot);
-                    let tip_changes = DashMap::new();
+                    let total_tips = AtomicU64::new(0);
+                    let mut latencies = vec![];
                     let futs = block.transactions.iter().filter_map(|tx| {
                         if tx.is_vote {
+                            latencies.extend(process_vote(block.slot, tx));
                             None
                         } else {
-                            Some(non_votes.process_transaction(tx).map(|changes| {
-                                changes.into_iter().for_each(|(key, change)| {
-                                    for tip in JITOTIPS {
-                                        if key == tip {
-                                            if change > 0 {
-                                                let change = change as u64;
-                                                tip_changes.entry(key).or_insert(AtomicU64::new(0)).fetch_add(change, Ordering::Relaxed);
-                                            }
-                                        }
-                                    }
-                                });
+                            Some(non_votes.tally_tips(tx).map(|tips| {
+                                total_tips.fetch_add(tips, Ordering::Relaxed);
                             }))
                         }
                     }).collect::<Vec<_>>();
@@ -98,9 +96,21 @@ async fn main() {
                     futures::future::join_all(futs).await;
                     println!("finished processing non-vote transactions in block {}", block.slot);
                     lut.print_stats();
-                    for (tip, change) in tip_changes {
-                        println!("tip {}: {}", tip, change.load(Ordering::Relaxed));
+                    let mut total_fees = 0;
+                    if let Some(rewards) = block.rewards {
+                        for reward in rewards.rewards {
+                            println!("reward: {:?}, {:?}, {:?}", reward.pubkey, reward.lamports, reward.reward_type);
+                            if reward.reward_type == 1 {
+                                total_fees = reward.lamports;
+                                break;
+                            }
+                        }
                     }
+                    println!("total tips in block {}: {}", block.slot, total_tips.load(Ordering::Relaxed));
+                    println!("total fees in block {}: {}", block.slot, total_fees);
+
+                    conn.exec_batch(&latency_stmt, latencies);
+                    conn.exec_drop(&revenue_stmt, (block.slot, total_fees, total_tips.load(Ordering::Relaxed)));
                 },
                 _ => {},
             }
