@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::atomic::{AtomicU64, Ordering}};
 
+use crate::utils::pubkey_from_slice;
 use dashmap::DashMap;
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_program::pubkey::Pubkey;
@@ -54,7 +55,7 @@ impl Lut {
     pub fn process_account_update(&self, update: SubscribeUpdateAccount) {
         // Implement the logic to process account updates and update the LUT cache accordingly
         if let Some(account) = update.account {
-            let pubkey = Pubkey::new_from_array(account.pubkey[0..32].try_into().expect("slice with incorrect length"));
+            let pubkey = pubkey_from_slice(&account.pubkey[0..32]);
             if let Ok(lut) = AddressLookupTable::deserialize(&account.data) {
                 self.lut_cache.insert(pubkey, lut.addresses.to_vec());
                 self.external_update_cnt.fetch_add(1, Ordering::Relaxed);
@@ -67,10 +68,10 @@ impl Lut {
         // ensure that we can resolve all LUTs before processing the transaction
         if let Some(meta) = &tx.meta && let Some(tx) = &tx.transaction && let Some(msg) = &tx.message {
             // first part of the accounts referenced by this tx
-            let mut account_keys: Vec<Pubkey> = msg.account_keys.iter().map(|key| Pubkey::new_from_array(key[0..32].try_into().expect("slice with incorrect length"))).collect();
+            let mut account_keys: Vec<Pubkey> = msg.account_keys.iter().map(|key| pubkey_from_slice(&key[0..32])).collect();
 
             // the rest are in LUTs, make sure we have them cached
-            let lut_keys: Vec<Pubkey> = msg.address_table_lookups.iter().map(|lookup| Pubkey::new_from_array(lookup.account_key[0..32].try_into().expect("slice with incorrect length"))).collect();
+            let lut_keys: Vec<Pubkey> = msg.address_table_lookups.iter().map(|lookup| pubkey_from_slice(&lookup.account_key[0..32])).collect();
             self.ensure_luts(lut_keys.clone()).await;
 
             // second part of the accounts
