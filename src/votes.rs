@@ -16,6 +16,11 @@ pub fn process_vote(landed_slot: u64, tx: &SubscribeUpdateTransactionInfo) -> Ve
         let vote_account = pubkey_from_slice(&msg.account_keys[ix.accounts[0] as usize]);
         let mut latencies = vec![];
         
+        if ix.data[0..4] != [0x0e, 0x00, 0x00, 0x00] {
+            // not a tower sync
+            return vec![];
+        }
+        
         let mut offset = 4;
         let root = u64::from_le_bytes(ix.data[offset..offset + 8].try_into().unwrap());
         offset += 8;
