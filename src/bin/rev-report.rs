@@ -42,7 +42,7 @@ fn main() {
     let mysql_url = std::env::var("MYSQL").expect("MYSQL must be set");
     let args: Vec<_> = std::env::args().collect();
     if args.len() < 2 {
-        println!("usage: {} <epoch>\n", args[0]);
+        println!("usage: {} <epoch>", args[0]);
         return;
     }
     let epoch: u64 = args[1].parse().unwrap();
