@@ -28,7 +28,7 @@ fn main() {
     } else {
         (epoch * 432000, epoch * 432000 + 431999)
     };
-    conn.exec_map("select floor(slot/1000)%432, count(*), sum(latency), sum(least(16,17-latency)) from vote_latencies where vote_account=? and slot between ? and ? group by floor(slot/1000)", (args[1].clone(), start_slot, end_slot), |(bucket, count, lat_sum, credits): (u64, u64, u64, u64)|{
+    conn.exec_map("select floor(slot/1000)%432, count(*), sum(latency), sum(least(16,18-latency)) from vote_latencies where vote_account=? and slot between ? and ? group by floor(slot/1000)", (args[1].clone(), start_slot, end_slot), |(bucket, count, lat_sum, credits): (u64, u64, u64, u64)|{
         println!("{bucket:3} {count:4}/1000 {lat_sum} {credits}");
     });
 }
